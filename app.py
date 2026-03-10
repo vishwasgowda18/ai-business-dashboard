@@ -3,130 +3,105 @@ import pandas as pd
 from google import genai
 import plotly.express as px
 import json
+import re
+from io import StringIO
 
-# 1. PAGE CONFIGURATION & THEME
-st.set_page_config(page_title="AI BI Dashboard Pro", layout="wide", page_icon="📊")
+# 1. SETTINGS & THEME
+st.set_page_config(page_title="Amazon AI Analyst", layout="wide", page_icon="📦")
 
-# Custom CSS for "Impressive & Stylish" look
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
-    .stTextInput > div > div > input {
-        background-color: #161b22;
-        color: #58a6ff;
-        border: 1px solid #30363d;
-        border-radius: 10px;
-    }
-    .stMetric {
-        background-color: #161b22;
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #30363d;
-    }
-    [data-testid="stSidebar"] {
-        background-color: #0d1117;
-        border-right: 1px solid #30363d;
-    }
+    .stTextInput > div > div > input { background-color: #161b22; color: #58a6ff; border: 1px solid #30363d; border-radius: 10px; }
+    .stMetric { background-color: #161b22; padding: 15px; border-radius: 10px; border: 1px solid #30363d; }
+    [data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #30363d; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. INITIALIZE AI CLIENT (2026 SDK)
-# Replace with your actual key
-client = genai.Client(api_key="Enter_your_key") 
+# 2. SMART DATA LOADER
+def load_data(file):
+    try:
+        content = file.read().decode('utf-8', errors='ignore')
+        match = re.search(r'<pre[^>]*>(.*?)</pre>', content, re.DOTALL)
+        csv_text = match.group(1).strip() if match else content.strip()
+        return pd.read_csv(StringIO(csv_text))
+    except Exception as e:
+        st.error(f"Upload Error: {e}")
+        return None
 
-# 3. SYSTEM PROMPT (Accuracy & Hallucination Handling)
+# 3. INITIALIZE AI
+client = genai.Client(api_key="YOUR_API_KEY")
+
+# 4. ENHANCED SYSTEM PROMPT
+# This prompt tells the AI it can either return a CHART (JSON) or a CONVERSATION (Text)
 SYSTEM_PROMPT = """
-You are a Senior BI Analyst. Use the provided dataset columns to answer the user.
-RULES:
-1. ALWAYS return a valid JSON object.
-2. If the data is missing for a request, return {"error": "Description of why data is missing"}.
-3. Choose chart_type from: 'line' (trends), 'bar' (comparison), 'pie' (proportions).
-4. Identify the correct 'x' and 'y' columns from the user's data.
+You are a Senior Amazon Data Analyst. You have a dataset with these columns:
+[order_id, order_date, product_id, product_category, price, discount_percent, 
+quantity_sold, customer_region, payment_method, rating, review_count, 
+discounted_price, total_revenue]
 
-JSON FORMAT:
-{
-  "chart_type": "bar",
-  "x": "column_name",
-  "y": "column_name",
-  "title": "Professional Title",
-  "insight": "One sentence business takeaway"
-}
+TASK:
+- If the user asks for a chart or a visual, return a JSON object with keys: 
+  "type": "chart", "chart_type": "bar/line/pie", "x": "col", "y": "col", "title": "...", "insight": "..."
+- If the user asks a general question (e.g. 'What is the best category?'), return a JSON object with:
+  "type": "text", "body": "Your detailed answer here based on the data."
+- ALWAYS return valid JSON. Do not include markdown blocks.
 """
 
-# 4. SIDEBAR (User Flow & Data Stats)
+# 5. SIDEBAR & FILE UPLOAD
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=80)
-    st.title("Insight Engine")
-    st.markdown("---")
-    uploaded_file = st.file_uploader("📂 Upload Business Data", type="csv")
-    st.info("Powered by Gemini 2.5 Flash")
+    st.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=70)
+    st.title("Amazon AI Suite")
+    uploaded_file = st.file_uploader("Upload 'Amazon Sales (1).csv'", type="csv")
 
-# 5. MAIN DASHBOARD LOGIC
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    cols = list(df.columns)
-    
-    # Header Section
-    st.title("🚀 Conversational BI Dashboard")
-    
-    # KPI Cards (Aesthetics & Innovation)
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Records", len(df))
-    with col2:
-        if 'Sales' in df.columns:
-            st.metric("Total Sales", f"${df['Sales'].sum():,.0f}")
-    with col3:
-        st.metric("Total Categories", len(df.iloc[:, 1].unique())) # Dynamically looks at 2nd column
+    df = load_data(uploaded_file)
+    if df is not None:
+        # Dashboard Header
+        st.title("🚀 Amazon Conversational BI")
+        
+        # KPI Cards
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Revenue", f"${df['total_revenue'].sum():,.0f}")
+        c2.metric("Orders", len(df))
+        c3.metric("Avg Rating", f"{df['rating'].mean():.1f} ⭐")
+        c4.metric("Top Region", df['customer_region'].mode()[0])
 
-    st.divider()
+        st.divider()
 
-    # Natural Language Input
-    user_query = st.text_input("💬 What business insight are you looking for today?", 
-                               placeholder="e.g., 'Show me sales by region'")
+        # Chat Interface
+        user_query = st.text_input("💬 Ask the AI Analyst about your Amazon data...", 
+                                   placeholder="e.g., 'What is our trend?' or 'Compare regions'")
 
-    if user_query:
-        with st.status("🧠 AI Analyst is thinking...", expanded=True) as status:
-            # AI Call
-            full_prompt = f"{SYSTEM_PROMPT}\nColumns in Dataset: {cols}\nUser Request: {user_query}"
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=full_prompt
-            )
-            
-            try:
-                # Clean and Parse Response
-                raw_text = response.text.replace("```json", "").replace("```", "").strip()
-                res_json = json.loads(raw_text)
+        if user_query:
+            with st.status("🧠 Gemini is analyzing...") as status:
+                full_prompt = f"{SYSTEM_PROMPT}\nData Context: {df.head(5).to_string()}\nUser: {user_query}"
+                response = client.models.generate_content(model="gemini-2.5-flash", contents=full_prompt)
                 
-                if "error" in res_json:
-                    st.warning(res_json["error"])
-                else:
-                    # Chart Generation
-                    st.subheader(f"📊 {res_json['title']}")
-                    
-                    if res_json['chart_type'] == 'bar':
-                        fig = px.bar(df, x=res_json['x'], y=res_json['y'], 
-                                     color=res_json['x'], template="plotly_dark")
-                    elif res_json['chart_type'] == 'line':
-                        fig = px.line(df, x=res_json['x'], y=res_json['y'], 
-                                      markers=True, template="plotly_dark")
-                    else:
-                        fig = px.pie(df, names=res_json['x'], values=res_json['y'], 
-                                     template="plotly_dark")
-                    
-                    st.plotly_chart(fig, width="stretch")
-                    
-                    # Insight Section
-                    with st.chat_message("assistant"):
-                        st.write(f"**AI Insight:** {res_json['insight']}")
-                
-                status.update(label="Analysis Complete!", state="complete", expanded=False)
+                try:
+                    # Parse the AI response
+                    raw_text = response.text.replace("```json", "").replace("```", "").strip()
+                    res = json.loads(raw_text)
 
-            except Exception as e:
-                st.error("The AI had trouble formatting that data. Try a simpler question.")
-                status.update(label="Error Found", state="error")
-else:
-    st.title("Welcome to your AI BI Suite")
-    st.info("Please upload a CSV file in the sidebar to begin your analysis.")
-    st.image("https://images.unsplash.com/photo-1551288049-bbbda546697a?q=80&w=2070&auto=format&fit=crop", width=700)
+                    # Handle Text Answers
+                    if res.get("type") == "text":
+                        with st.chat_message("assistant"):
+                            st.write(res["body"])
+                    
+                    # Handle Chart Answers
+                    elif res.get("type") == "chart":
+                        st.subheader(res['title'])
+                        if res['chart_type'] == 'bar':
+                            fig = px.bar(df, x=res['x'], y=res['y'], color=res['x'], template="plotly_dark")
+                        elif res['chart_type'] == 'line':
+                            fig = px.line(df, x=res['x'], y=res['y'], markers=True, template="plotly_dark")
+                        else:
+                            fig = px.pie(df, names=res['x'], values=res['y'], template="plotly_dark")
+                        
+                        st.plotly_chart(fig, width="stretch")
+                        st.info(f"💡 **Insight:** {res['insight']}")
+
+                    status.update(label="Analysis Complete", state="complete")
+                except Exception as e:
+                    st.error("I understood your question but had trouble formatting the answer. Try asking for a 'chart' specifically.")
+                    status.update(label="Formatting Error", state="error")
