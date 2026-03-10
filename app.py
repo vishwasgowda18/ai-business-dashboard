@@ -9,7 +9,7 @@ import json
 st.set_page_config(page_title="Instant BI Dashboard", layout="wide")
 
 # NEW: The SDK now uses a Client object
-client = genai.Client(api_key="AIzaSyD3SlBZcawH3FbriWjngpWYNI16S5xWdtY") 
+client = genai.Client(api_key="enter_your_key") 
 
 # 2. SYSTEM PROMPT (The "Brain" Instructions)
 SYSTEM_PROMPT = """
@@ -63,4 +63,5 @@ if uploaded_file:
                 st.info(f"💡 **Insight:** {res_json['insight']}")
 
             except Exception as e:
+
                 st.error("Error processing AI response. Try rephrasing your question.")
